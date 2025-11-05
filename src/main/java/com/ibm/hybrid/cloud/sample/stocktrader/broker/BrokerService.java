@@ -20,7 +20,8 @@ package com.ibm.hybrid.cloud.sample.stocktrader.broker;
 import com.ibm.hybrid.cloud.sample.stocktrader.broker.client.AccountClient;
 import com.ibm.hybrid.cloud.sample.stocktrader.broker.client.CashAccountClient;
 import com.ibm.hybrid.cloud.sample.stocktrader.broker.client.PortfolioClient;
-import com.ibm.hybrid.cloud.sample.stocktrader.broker.client.TradeHistoryClient;
+//import com.ibm.hybrid.cloud.sample.stocktrader.broker.client.TradeHistoryClient;
+import com.ibm.hybrid.cloud.sample.stocktrader.broker.client.tradehistory.TradeHistoryClient;
 import com.ibm.hybrid.cloud.sample.stocktrader.broker.json.Account;
 import com.ibm.hybrid.cloud.sample.stocktrader.broker.json.Broker;
 import com.ibm.hybrid.cloud.sample.stocktrader.broker.json.CashAccount;
@@ -44,7 +45,6 @@ import io.opentelemetry.context.Scope;
 import jakarta.annotation.security.RolesAllowed;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import jakarta.enterprise.context.RequestScoped;
 
 //mpConfig 1.3
 import jakarta.ws.rs.*;
@@ -427,7 +427,7 @@ public class BrokerService extends Application {
 		}
 
 		logger.fine("Getting portfolio returns");
-		String result = "Unknown";
+		Double result = null;
 		Portfolio portfolio = portfolioClient.getPortfolio(owner, true); //throws a 404 exception if not present
 		if (portfolio != null) {
 			Double portfolioValue = portfolio.getTotal();
@@ -442,7 +442,7 @@ public class BrokerService extends Application {
 		} else {
 			logger.warning("Portfolio not found to get returns for "+owner);
 		}
-		return result;
+		return String.valueOf(result);
 	}
 
 	@PUT

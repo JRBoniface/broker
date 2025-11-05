@@ -39,6 +39,7 @@ import org.eclipse.microprofile.rest.client.inject.RegisterRestClient;
 @RegisterClientHeaders //To enable JWT propagation
 // JWT is propagated.  See src/main/resources/META-INF/microprofile-config.properties
 /** mpRestClient "remote" interface for the trade history microservice */
+@Deprecated
 public interface TradeHistoryClient {
     @GET
     @Path("/returns/{owner}")
