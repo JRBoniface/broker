@@ -23,6 +23,8 @@
 <!--    <feature>logstashCollector-1.1</feature> -->
     </featureManager>
 
+    <mpTelemetry source="message, trace, ffdc"/>
+
     <variable name="TRACE_SPEC" defaultValue="*=info"/>
 
     <logging traceSpecification="${TRACE_SPEC}" consoleLogLevel="INFO" />

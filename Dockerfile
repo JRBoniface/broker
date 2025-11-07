@@ -39,6 +39,16 @@ COPY src/main/liberty/config /opt/ol/wlp/usr/servers/defaultServer/
 COPY target/broker-1.0-SNAPSHOT.war /opt/ol/wlp/usr/servers/defaultServer/apps/Broker.war
 # COPY --from=cert-extractor /keycloak.pem /tmp/keycloak.pem
 RUN chown -R 1001:0 config/
+
+# OpenTelemetry configuration used for local builds - when deployed via Helm chart, these will be set via environment variables within the chart
+ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+# Disabled by default, enable for testing
+ENV OTEL_SDK_DISABLED=true
+ENV OTEL_TRACES_EXPORTER=otlp
+ENV OTEL_LOGS_EXPORTER=otlp
+ENV OTEL_METRICS_EXPORTER=otlp
+ENV OTEL_SERVICE_NAME=trader
+
 USER 1001
 # RUN if [ "$extract_keycloak_cert" = "true" ]; then keytool -import -v -trustcacerts -alias keycloak -file /tmp/keycloak.pem -keystore /opt/ol/wlp/usr/servers/defaultServer/resources/security/trust.p12 --noprompt --storepass St0ckTr@der ; fi
 RUN configure.sh
