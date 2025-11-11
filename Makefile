@@ -4,7 +4,7 @@
 # Variables
 IMAGE_NAME ?= broker
 IMAGE_TAG ?= latest
-IMAGE_REGISTRY ?= docker.io
+IMAGE_REGISTRY ?= ghrc.io
 IMAGE_REPO ?= $(IMAGE_REGISTRY)/$(IMAGE_NAME)
 FULL_IMAGE ?= $(IMAGE_REPO):$(IMAGE_TAG)
 
