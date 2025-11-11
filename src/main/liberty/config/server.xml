@@ -18,7 +18,6 @@
 <server description="Broker server">
     <featureManager>
         <feature>microProfile-7.1</feature>
-        <feature>mpTelemetry-2.1</feature>
         <feature>appSecurity-5.0</feature>
 <!--    <feature>logstashCollector-1.1</feature> -->
     </featureManager>
