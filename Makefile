@@ -1,156 +1,155 @@
-# Makefile for building broker container image
-# Copyright 2025 Kyndryl, All Rights Reserved
+# Makefile for building, testing, and pushing broker image
+# Supports both Docker and Podman
 
-# Variables
+# Detect container runtime (podman or docker)
+CONTAINER_RUNTIME ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
+ifeq ($(CONTAINER_RUNTIME),)
+$(error Neither podman nor docker found in PATH)
+endif
+
+# Image configuration
 IMAGE_NAME ?= broker
 IMAGE_TAG ?= latest
-IMAGE_REGISTRY ?= ghrc.io
-IMAGE_REPO ?= $(IMAGE_REGISTRY)/$(IMAGE_NAME)
-FULL_IMAGE ?= $(IMAGE_REPO):$(IMAGE_TAG)
+LOCAL_IMAGE := $(IMAGE_NAME):$(IMAGE_TAG)
 
-DOCKERFILE ?= Dockerfile
-DOCKER_BUILD_ARGS ?=
+# Registry configuration
+DEV_REGISTRY ?= stocktraderotel.azurecr.io
+PROD_REGISTRY ?= ghrc.io
+DEV_IMAGE := $(DEV_REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
+PROD_IMAGE := $(PROD_REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
 
-# Docker/Podman detection
-CONTAINER_CLI ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
+# Test container configuration
+TEST_CONTAINER ?= broker-test
+TEST_PORT ?= 9081
+HEALTH_ENDPOINT ?= /health
 
-# Network (shared with trader)
-NETWORK_NAME ?= trader-network
-
-# OpenTelemetry configuration
-OTEL_CONTAINER ?= otel-collector
+# Colors for output
+GREEN := \033[0;32m
+YELLOW := \033[0;33m
+RED := \033[0;31m
+NC := \033[0m # No Color
 
 .PHONY: help
-help: ## Display this help message
-	@echo "Broker Image Build Makefile"
+help: ## Show this help message
+	@echo "$(GREEN)Broker Build and Deploy Makefile$(NC)"
+	@echo "Container runtime: $(CONTAINER_RUNTIME)"
 	@echo ""
-	@echo "Usage: make [target]"
+	@echo "$(YELLOW)Image Tags:$(NC)"
+	@echo "  Local:       $(LOCAL_IMAGE)"
+	@echo "  Development: $(DEV_IMAGE)"
+	@echo "  Production:  $(PROD_IMAGE)"
 	@echo ""
-	@echo "Targets:"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
-
+	@echo "Available targets:"
+	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  $(YELLOW)%-20s$(NC) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 .PHONY: build
-build: ## Build the container image
-	@echo "Building image: $(FULL_IMAGE)"
+build: ## Build the broker application (Maven + Container image)
+	@echo "$(GREEN)Building Maven package...$(NC)"
 	mvn clean package
-	$(CONTAINER_CLI) build $(DOCKER_BUILD_ARGS) -t $(FULL_IMAGE) -f $(DOCKERFILE) .
-	@echo "Successfully built: $(FULL_IMAGE)"
+	@echo "$(GREEN)Building container image...$(NC)"
+	$(CONTAINER_RUNTIME) build -t $(LOCAL_IMAGE) .
+	@echo "$(GREEN)Build complete: $(LOCAL_IMAGE)$(NC)"
 
-.PHONY: build-no-cache
-build-no-cache: ## Build the container image without cache
-	@echo "Building image without cache: $(FULL_IMAGE)"
-	$(CONTAINER_CLI) build --no-cache $(DOCKER_BUILD_ARGS) -t $(FULL_IMAGE) -f $(DOCKERFILE) .
-	@echo "Successfully built: $(FULL_IMAGE)"
+.PHONY: build-maven
+build-maven: ## Build only the Maven package
+	@echo "$(GREEN)Running Maven build...$(NC)"
+	mvn clean package
+	@echo "$(GREEN)Maven build complete$(NC)"
 
-.PHONY: tag
-tag: ## Tag the image with additional tags (usage: make tag TAG=v1.0.0)
-	@if [ -z "$(TAG)" ]; then \
-		echo "Error: TAG variable is required. Usage: make tag TAG=v1.0.0"; \
-		exit 1; \
-	fi
-	@echo "Tagging $(FULL_IMAGE) as $(IMAGE_REPO):$(TAG)"
-	$(CONTAINER_CLI) tag $(FULL_IMAGE) $(IMAGE_REPO):$(TAG)
-
-.PHONY: push
-push: ## Push the image to registry
-	@echo "Pushing image: $(FULL_IMAGE)"
-	$(CONTAINER_CLI) push $(FULL_IMAGE)
-
-.PHONY: push-tag
-push-tag: ## Push a specific tag (usage: make push-tag TAG=v1.0.0)
-	@if [ -z "$(TAG)" ]; then \
-		echo "Error: TAG variable is required. Usage: make push-tag TAG=v1.0.0"; \
-		exit 1; \
-	fi
-	@echo "Pushing image: $(IMAGE_REPO):$(TAG)"
-	$(CONTAINER_CLI) push $(IMAGE_REPO):$(TAG)
-
-.PHONY: build-and-push
-build-and-push: build push ## Build and push the image
-
-.PHONY: clean
-clean: ## Remove the built image
-	@echo "Removing image: $(FULL_IMAGE)"
-	$(CONTAINER_CLI) rmi $(FULL_IMAGE) || true
-
-.PHONY: network-join
-network-join: ## Ensure the network exists (shared with trader/OTEL)
-	@echo "Checking network $(NETWORK_NAME)..."
-	@$(CONTAINER_CLI) network inspect $(NETWORK_NAME) >/dev/null 2>&1 || \
-		(echo "Network $(NETWORK_NAME) not found. Please run 'make start-otel' or 'make network-create' from the trader directory first." && exit 1)
-	@echo "Network $(NETWORK_NAME) is ready"
+.PHONY: build-image
+build-image: ## Build only the container image (requires prior Maven build)
+	@echo "$(GREEN)Building container image...$(NC)"
+	$(CONTAINER_RUNTIME) build -t $(LOCAL_IMAGE) .
+	@echo "$(GREEN)Image built: $(LOCAL_IMAGE)$(NC)"
 
 .PHONY: run
-run: network-join ## Run the container locally (usage: make run PORT=9080)
-	@echo "Running container: $(FULL_IMAGE)"
-	@$(CONTAINER_CLI) rm -f $(IMAGE_NAME) 2>/dev/null || true
-	$(CONTAINER_CLI) run -d \
-		--name $(IMAGE_NAME) \
-		--network $(NETWORK_NAME) \
-		-p $(PORT):9080 \
-		-p $(DEBUG_PORT):7777 \
-		-e LICENSE=accept \
-		-e OTEL_EXPORTER_OTLP_ENDPOINT=http://$(OTEL_CONTAINER):4317 \
-		$(FULL_IMAGE)
-	@echo "Container started. Access at http://localhost:$(PORT)"
-	@echo "Debug port available at: $(DEBUG_PORT)"
-	@echo "Connected to OpenTelemetry Collector at $(OTEL_CONTAINER):4317"
-	@echo "To view logs: make logs"
-	@echo "To stop: make stop"
+run: ## Run the image locally for testing
+	@echo "$(GREEN)Starting broker container...$(NC)"
+	@$(CONTAINER_RUNTIME) rm -f $(TEST_CONTAINER) 2>/dev/null || true
+	$(CONTAINER_RUNTIME) run -d \
+		--name $(TEST_CONTAINER) \
+		-p $(TEST_PORT):9080 \
+		-e JWT_AUDIENCE=stock-trader \
+		-e JWT_ISSUER=http://stock-trader.ibm.com \
+		$(LOCAL_IMAGE)
+	@echo "$(GREEN)Container started: $(TEST_CONTAINER)$(NC)"
+	@echo "$(GREEN)Access at: http://localhost:$(TEST_PORT)/broker$(NC)"
 
-.PHONY: run-it
-run-it: network-join ## Run the container interactively (usage: make run-it PORT=9080)
-	@echo "Running container interactively: $(FULL_IMAGE)"
-	$(CONTAINER_CLI) run -it --rm \
-		--name $(IMAGE_NAME) \
-		--network $(NETWORK_NAME) \
-		-p $(PORT):9080 \
-		-p $(DEBUG_PORT):7777 \
-		-e LICENSE=accept \
-		-e OTEL_EXPORTER_OTLP_ENDPOINT=http://$(OTEL_CONTAINER):4317 \
-		$(FULL_IMAGE)
+.PHONY: validate
+validate: ## Validate that the container is running correctly
+	@echo "$(GREEN)Validating container...$(NC)"
+	@sleep 5
+	@echo "$(YELLOW)Checking container status...$(NC)"
+	@$(CONTAINER_RUNTIME) ps --filter name=$(TEST_CONTAINER) --format "table {{.Names}}\t{{.Status}}" || \
+		(echo "$(RED)Container not running!$(NC)" && exit 1)
+	@echo "$(YELLOW)Testing health endpoint...$(NC)"
+	@curl -f -s http://localhost:$(TEST_PORT)$(HEALTH_ENDPOINT) > /dev/null && \
+		echo "$(GREEN)✓ Health check passed$(NC)" || \
+		(echo "$(RED)✗ Health check failed$(NC)" && exit 1)
+	@echo "$(YELLOW)Checking container logs...$(NC)"
+	@$(CONTAINER_RUNTIME) logs $(TEST_CONTAINER) 2>&1 | tail -10
+	@echo "$(GREEN)Validation complete!$(NC)"
 
 .PHONY: stop
-stop: ## Stop the running container
-	@echo "Stopping container: $(IMAGE_NAME)"
-	$(CONTAINER_CLI) stop $(IMAGE_NAME) || true
-	$(CONTAINER_CLI) rm $(IMAGE_NAME) || true
+stop: ## Stop the test container
+	@echo "$(YELLOW)Stopping test container...$(NC)"
+	@$(CONTAINER_RUNTIME) stop $(TEST_CONTAINER) 2>/dev/null || true
+	@echo "$(GREEN)Container stopped$(NC)"
+
+.PHONY: clean
+clean: stop ## Remove the test container
+	@echo "$(YELLOW)Removing test container...$(NC)"
+	@$(CONTAINER_RUNTIME) rm -f $(TEST_CONTAINER) 2>/dev/null || true
+	@echo "$(GREEN)Cleanup complete$(NC)"
 
 .PHONY: logs
-logs: ## View container logs (usage: make logs or make logs FOLLOW=true)
-	@if [ "$(FOLLOW)" = "true" ]; then \
-		$(CONTAINER_CLI) logs -f $(IMAGE_NAME); \
-	else \
-		$(CONTAINER_CLI) logs $(IMAGE_NAME); \
-	fi
+logs: ## Show container logs
+	@$(CONTAINER_RUNTIME) logs $(TEST_CONTAINER)
+
+.PHONY: logs-follow
+logs-follow: ## Follow container logs
+	@$(CONTAINER_RUNTIME) logs -f $(TEST_CONTAINER)
 
 .PHONY: shell
-shell: ## Get a shell inside the running container
-	@echo "Opening shell in container: $(IMAGE_NAME)"
-	$(CONTAINER_CLI) exec -it $(IMAGE_NAME) /bin/bash
+shell: ## Get a shell in the running container
+	@$(CONTAINER_RUNTIME) exec -it $(TEST_CONTAINER) /bin/bash
 
-.PHONY: restart
-restart: stop run ## Restart the container
+.PHONY: tag-dev
+tag-dev: ## Tag image for development registry
+	@echo "$(GREEN)Tagging image for development registry...$(NC)"
+	$(CONTAINER_RUNTIME) tag $(LOCAL_IMAGE) $(DEV_IMAGE)
+	@echo "$(GREEN)Tagged: $(DEV_IMAGE)$(NC)"
 
-.PHONY: info
-info: ## Display build information
-	@echo "Build Configuration:"
-	@echo "  Container CLI:  $(CONTAINER_CLI)"
-	@echo "  Image Name:     $(IMAGE_NAME)"
-	@echo "  Image Tag:      $(IMAGE_TAG)"
-	@echo "  Image Registry: $(IMAGE_REGISTRY)"
-	@echo "  Full Image:     $(FULL_IMAGE)"
-	@echo "  Dockerfile:     $(DOCKERFILE)"
-	@echo ""
-	@echo "Runtime Configuration:"
-	@echo "  HTTP Port:      $(PORT)"
-	@echo "  Debug Port:     $(DEBUG_PORT)"
-	@echo "  Network:        $(NETWORK_NAME)"
-	@echo "  OTEL Collector: $(OTEL_CONTAINER):4317"
+.PHONY: tag-prod
+tag-prod: ## Tag image for production registry
+	@echo "$(GREEN)Tagging image for production registry...$(NC)"
+	$(CONTAINER_RUNTIME) tag $(LOCAL_IMAGE) $(PROD_IMAGE)
+	@echo "$(GREEN)Tagged: $(PROD_IMAGE)$(NC)"
 
-# Default port values (different from trader to avoid conflicts)
-PORT ?= 9081
-DEBUG_PORT ?= 7778
+.PHONY: push-dev
+push-dev: tag-dev ## Push image to development registry
+	@echo "$(GREEN)Pushing to development registry...$(NC)"
+	$(CONTAINER_RUNTIME) push $(DEV_IMAGE)
+	@echo "$(GREEN)Pushed: $(DEV_IMAGE)$(NC)"
+
+.PHONY: push-prod
+push-prod: tag-prod ## Push image to production registry
+	@echo "$(GREEN)Pushing to production registry...$(NC)"
+	$(CONTAINER_RUNTIME) push $(PROD_IMAGE)
+	@echo "$(GREEN)Pushed: $(PROD_IMAGE)$(NC)"
+
+.PHONY: test
+test: run validate stop ## Build, run, and validate the image locally
+
+.PHONY: all
+all: build test ## Build and test the image
+
+.PHONY: deploy-dev
+deploy-dev: build test push-dev ## Build, test, and push to development registry
+	@echo "$(GREEN)Deployment to dev complete!$(NC)"
+
+.PHONY: deploy-prod
+deploy-prod: build test push-prod ## Build, test, and push to production registry
+	@echo "$(GREEN)Deployment to prod complete!$(NC)"
 
 .DEFAULT_GOAL := help
